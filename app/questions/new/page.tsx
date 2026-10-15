@@ -1,15 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const router = useRouter();
 
-  // UIテスト用の仮ハンドラー（後でSupabaseへのデータ保存処理に置き換えます）
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    alert(`【UIテスト】\nタイトル: ${title}\n内容: ${content}`);
+
+    // 投稿処理（後でSupabaseへINSERTする処理をここに記述します）
+
+    // 質問一覧ページへ画面遷移
+    router.push("/questions");
   };
 
   return (
@@ -17,6 +23,12 @@ export default function NewQuestionPage() {
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
         {/* ヘッダー */}
         <div className="mb-8">
+          <Link
+            href="/questions"
+            className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition mb-4"
+          >
+            ← 質問一覧に戻る
+          </Link>
           <h1 className="text-2xl font-bold text-gray-900">
             新しい質問を投稿する
           </h1>
@@ -67,9 +79,15 @@ export default function NewQuestionPage() {
 
           {/* ボタンエリア */}
           <div className="flex items-center justify-end space-x-4 pt-4">
+            <Link
+              href="/questions"
+              className="px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition duration-150"
+            >
+              キャンセル
+            </Link>
             <button
               type="submit"
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
             >
               質問を投稿する
             </button>
