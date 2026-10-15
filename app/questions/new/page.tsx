@@ -3,19 +3,40 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim() || !content.trim()) return;
 
-    // 投稿処理（後でSupabaseへINSERTする処理をここに記述します）
+    setIsSubmitting(true);
 
-    // 質問一覧ページへ画面遷移
-    router.push("/questions");
+    try {
+      // Supabaseのquestionsテーブルへデータを挿入(INSERT)
+      const { error } = await supabase
+        .from("questions")
+        .insert([{ title, content }]);
+
+      if (error) {
+        console.error("保存失敗:", error);
+        alert("データベースへの保存に失敗しました");
+        return;
+      }
+
+      // 保存が完了したら一覧画面へ移動
+      router.push("/questions");
+    } catch (err) {
+      console.error("送信エラー:", err);
+      alert("エラーが発生しました");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -87,9 +108,10 @@ export default function NewQuestionPage() {
             </Link>
             <button
               type="submit"
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
             >
-              質問を投稿する
+              {isSubmitting ? "保存中..." : "質問を投稿する"}
             </button>
           </div>
         </form>
