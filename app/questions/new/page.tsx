@@ -1,15 +1,42 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
 
-  // UIテスト用の仮ハンドラー（後でSupabaseへのデータ保存処理に置き換えます）
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    alert(`【UIテスト】\nタイトル: ${title}\n内容: ${content}`);
+    if (!title.trim() || !content.trim()) return;
+
+    setIsSubmitting(true);
+
+    try {
+      // Supabaseのquestionsテーブルへデータを挿入(INSERT)
+      const { error } = await supabase
+        .from("questions")
+        .insert([{ title, content }]);
+
+      if (error) {
+        console.error("保存失敗:", error);
+        alert("データベースへの保存に失敗しました");
+        return;
+      }
+
+      // 保存が完了したら一覧画面へ移動
+      router.push("/questions");
+    } catch (err) {
+      console.error("送信エラー:", err);
+      alert("エラーが発生しました");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -17,6 +44,12 @@ export default function NewQuestionPage() {
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
         {/* ヘッダー */}
         <div className="mb-8">
+          <Link
+            href="/questions"
+            className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition mb-4"
+          >
+            ← 質問一覧に戻る
+          </Link>
           <h1 className="text-2xl font-bold text-gray-900">
             新しい質問を投稿する
           </h1>
@@ -67,11 +100,18 @@ export default function NewQuestionPage() {
 
           {/* ボタンエリア */}
           <div className="flex items-center justify-end space-x-4 pt-4">
+            <Link
+              href="/questions"
+              className="px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition duration-150"
+            >
+              キャンセル
+            </Link>
             <button
               type="submit"
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              disabled={isSubmitting}
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
             >
-              質問を投稿する
+              {isSubmitting ? "保存中..." : "質問を投稿する"}
             </button>
           </div>
         </form>
