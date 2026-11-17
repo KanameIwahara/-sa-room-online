@@ -33,7 +33,31 @@ function QuestionDetailContent() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null); // ユーザーの役割（'student' | 'sa' | null）
+  const [userId, setUserId] = useState<string | null>(null); // ログイン中のユーザーID
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ログインユーザー情報と役割（role）を取得
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const { data } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        if (data) {
+          setUserRole(data.role);
+        }
+      }
+    };
+    fetchUserRole();
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!questionId) return;
@@ -109,6 +133,7 @@ function QuestionDetailContent() {
           question_id: questionId,
           content: content,
           image_url: imageUrl,
+          user_id: userId, // 投稿したSAのユーザーIDも保存
         },
       ]);
 
@@ -160,7 +185,7 @@ function QuestionDetailContent() {
 
           {answers.length === 0 ? (
             <div className="bg-white p-6 rounded-xl border border-gray-100 text-center text-gray-400 text-sm">
-              まだ返信はありません。最初のメッセージを投稿してみましょう！
+              まだ返信はありません。SA（先輩）からの回答をお待ちください。
             </div>
           ) : (
             answers.map((ans) => (
@@ -168,8 +193,13 @@ function QuestionDetailContent() {
                 key={ans.id}
                 className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm space-y-2"
               >
-                <div className="text-xs text-gray-400">
-                  {new Date(ans.created_at).toLocaleString("ja-JP")}
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span className="font-medium text-indigo-600">
+                    🧑‍🏫 SAからの回答
+                  </span>
+                  <span>
+                    {new Date(ans.created_at).toLocaleString("ja-JP")}
+                  </span>
                 </div>
                 {ans.content && (
                   <p className="text-gray-800 whitespace-pre-wrap text-sm">
@@ -191,63 +221,75 @@ function QuestionDetailContent() {
           )}
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white p-4 rounded-xl border border-gray-200 shadow-md space-y-3"
-        >
-          {filePreview && (
-            <div className="relative w-24 h-24 border rounded-lg overflow-hidden">
-              {/* eslint-disable-next-html-next/no-img-element */}
-              <img
-                src={filePreview}
-                alt="プレビュー"
-                className="w-full h-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedFile(null);
-                  setFilePreview(null);
-                }}
-                className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center"
-              >
-                ✕
-              </button>
+        {/* SA（先輩）の場合のみ返信フォームを表示 */}
+        {userRole === "sa" ? (
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white p-4 rounded-xl border border-gray-200 shadow-md space-y-3"
+          >
+            <div className="text-xs font-semibold text-indigo-600">
+              🧑‍🏫 SA（先輩）として回答する
             </div>
-          )}
 
-          <textarea
-            rows={3}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="返信・メッセージを入力..."
-            className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-          />
+            {filePreview && (
+              <div className="relative w-24 h-24 border rounded-lg overflow-hidden">
+                {/* eslint-disable-next-html-next/no-img-element */}
+                <img
+                  src={filePreview}
+                  alt="プレビュー"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    setFilePreview(null);
+                  }}
+                  className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
-          <div className="flex items-center justify-between">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              className="text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+            <textarea
+              rows={3}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="回答・メッセージを入力..."
+              className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
 
-            <button
-              type="submit"
-              disabled={isSubmitting || (!content.trim() && !selectedFile)}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg disabled:opacity-50 transition"
-            >
-              {isSubmitting ? "送信中..." : "送信する"}
-            </button>
+            <div className="flex items-center justify-between">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              />
+
+              <button
+                type="submit"
+                disabled={isSubmitting || (!content.trim() && !selectedFile)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg disabled:opacity-50 transition"
+              >
+                {isSubmitting ? "送信中..." : "送信する"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="bg-gray-100 p-4 rounded-xl border border-gray-200 text-center text-sm text-gray-500">
+            ※質問への回答は <strong>SA（先輩アシスタント）</strong>{" "}
+            のみ行えます。
           </div>
-        </form>
+        )}
       </div>
     </div>
   );
 }
 
-// 2. Suspenseで包んでエクスポート（エラー防止ガードマン）
+// 2. Suspenseで包んでエクスポート
 export default function QuestionDetailPage() {
   return (
     <Suspense
