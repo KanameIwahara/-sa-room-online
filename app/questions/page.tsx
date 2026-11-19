@@ -17,22 +17,17 @@ export default function QuestionsPage() {
 
   useEffect(() => {
     const fetchQuestions = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("questions")
-          .select("*")
-          .order("created_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("questions")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-        if (error) {
-          console.error("データ取得エラー:", error);
-        } else if (data) {
-          setQuestions(data);
-        }
-      } catch (err) {
-        console.error("エラー:", err);
-      } finally {
-        setLoading(false);
+      if (error) {
+        console.error("質問一覧の取得エラー:", error);
+      } else if (data) {
+        setQuestions(data);
       }
+      setLoading(false);
     };
 
     fetchQuestions();
@@ -59,12 +54,10 @@ export default function QuestionsPage() {
 
         {/* 質問カード一覧 */}
         {loading ? (
-          <p className="text-center text-gray-500 py-8">
-            データを読み込み中...
-          </p>
+          <div className="text-center py-12 text-gray-500">読み込み中...</div>
         ) : questions.length === 0 ? (
-          <div className="bg-white p-8 text-center rounded-xl border border-gray-100 text-gray-500">
-            まだ質問が投稿されていません。「新規質問を投稿」から最初の質問を書いてみましょう！
+          <div className="bg-white p-8 rounded-xl border border-gray-100 text-center text-gray-500">
+            まだ質問が投稿されていません。「新規質問を投稿」から最初の質問を作ってみましょう！
           </div>
         ) : (
           <div className="space-y-4">
@@ -72,12 +65,11 @@ export default function QuestionsPage() {
               <Link
                 key={q.id}
                 href={`/questions/${q.id}`}
-                className="block bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer"
+                className="block bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition"
               >
                 <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
                   <span>
-                    投稿日時:{" "}
-                    {new Date(q.created_at).toLocaleDateString("ja-JP")}
+                    投稿日時: {new Date(q.created_at).toLocaleString("ja-JP")}
                   </span>
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900 hover:text-indigo-600 transition">
