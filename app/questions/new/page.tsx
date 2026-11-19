@@ -3,19 +3,52 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim() || !content.trim()) return;
 
-    // 投稿処理（後でSupabaseへINSERTする処理をここに記述します）
+    setIsSubmitting(true);
 
-    // 質問一覧ページへ画面遷移
-    router.push("/questions");
+    try {
+      // 1. 現在ログインしているユーザー情報を取得
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        alert("質問を投稿するにはログインが必要です。");
+        router.push("/login");
+        return;
+      }
+
+      // 2. Supabase の questions テーブルに保存（user_id も一緒に保存）
+      const { error } = await supabase.from("questions").insert([
+        {
+          title: title,
+          content: content,
+          user_id: user.id,
+        },
+      ]);
+
+      if (error) throw error;
+
+      // 3. 質問一覧ページへ移動
+      router.push("/questions");
+      router.refresh();
+    } catch (err) {
+      console.error("質問投稿エラー:", err);
+      alert("質問の投稿に失敗しました。");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -87,9 +120,10 @@ export default function NewQuestionPage() {
             </Link>
             <button
               type="submit"
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
             >
-              質問を投稿する
+              {isSubmitting ? "投稿中..." : "質問を投稿する"}
             </button>
           </div>
         </form>
