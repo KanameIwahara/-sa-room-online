@@ -1,99 +1,346 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
-export default function NewQuestionPage() {
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+type Question = {
+  id: string;
+  title: string;
+  content: string;
+  user_id?: string | null;
+  created_at: string;
+};
+
+type Answer = {
+  id: string;
+  question_id: string;
+  content: string;
+  image_url?: string | null;
+  created_at: string;
+};
+
+// 1. 中身の処理を行うコンポーネント
+function QuestionDetailContent() {
+  const params = useParams();
   const router = useRouter();
+  const questionId = params.id as string;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const [question, setQuestion] = useState<Question | null>(null);
+  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [content, setContent] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 投稿処理（後でSupabaseへINSERTする処理をここに記述します）
+  // ログインユーザー情報と役割（role）を取得
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const { data } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
 
-    // 質問一覧ページへ画面遷移
-    router.push("/questions");
+        if (data) {
+          setUserRole(data.role);
+        }
+      }
+    };
+    fetchUserRole();
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    if (!questionId) return;
+
+    const { data: qData, error: qError } = await supabase
+      .from("questions")
+      .select("*")
+      .eq("id", questionId)
+      .single();
+
+    if (qError) console.error("質問取得エラー:", qError);
+    if (qData) setQuestion(qData);
+
+    const { data: aData, error: aError } = await supabase
+      .from("answers")
+      .select("*")
+      .eq("question_id", questionId)
+      .order("created_at", { ascending: true });
+
+    if (aError) console.error("返信取得エラー:", aError);
+    if (aData) setAnswers(aData);
+  }, [questionId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // 質問を取り消す（削除する）処理
+  const handleDeleteQuestion = async () => {
+    const isConfirmed = window.confirm(
+      "本当にこの質問を取り消しますか？\n（やり取りもすべて削除されます）",
+    );
+    if (!isConfirmed) return;
+
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("questions")
+        .delete()
+        .eq("id", questionId);
+
+      if (error) throw error;
+
+      alert("質問を取り消しました。");
+      router.push("/questions");
+      router.refresh();
+    } catch (err) {
+      console.error("削除エラー:", err);
+      alert("質問の取り消しに失敗しました。");
+      setIsDeleting(false);
+    }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setFilePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${Date.now()}_${Math.random()}.${fileExt}`;
+    const filePath = `answers/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("attachments")
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error("画像アップロードエラー:", uploadError);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!content.trim() && !selectedFile) return;
+
+    setIsSubmitting(true);
+
+    try {
+      let imageUrl: string | null = null;
+
+      if (selectedFile) {
+        imageUrl = await uploadImage(selectedFile);
+      }
+
+      const { error } = await supabase.from("answers").insert([
+        {
+          question_id: questionId,
+          content: content,
+          image_url: imageUrl,
+          user_id: userId,
+        },
+      ]);
+
+      if (error) throw error;
+
+      setContent("");
+      setSelectedFile(null);
+      setFilePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+
+      await fetchData();
+    } catch (err) {
+      console.error("送信エラー:", err);
+      alert("送信に失敗しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!question)
+    return <div className="p-8 text-center text-gray-500">読み込み中...</div>;
+
+  // 投稿者本人かどうかを判定
+  const isOwner = userId && question.user_id === userId;
+
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
-        {/* ヘッダー */}
-        <div className="mb-8">
+    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
           <Link
             href="/questions"
-            className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition mb-4"
+            className="text-sm text-gray-500 hover:underline"
           >
             ← 質問一覧に戻る
           </Link>
-          <h1 className="text-2xl font-bold text-gray-900">
-            新しい質問を投稿する
+
+          {/* 投稿者本人の場合のみ「質問を取り消す」ボタンを表示 */}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={handleDeleteQuestion}
+              disabled={isDeleting}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition disabled:opacity-50"
+            >
+              {isDeleting ? "削除中..." : "🗑 質問を取り消す"}
+            </button>
+          )}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-400 mb-2">
+            投稿日時: {new Date(question.created_at).toLocaleString("ja-JP")}
+          </p>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">
+            {question.title}
           </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            知りたいことや困っていることを詳しく入力してください。
+          <p className="text-gray-700 whitespace-pre-wrap">
+            {question.content}
           </p>
         </div>
 
-        {/* 質問フォーム */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* タイトル入力 */}
-          <div>
-            <label
-              htmlFor="title"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              質問のタイトル
-            </label>
-            <input
-              id="title"
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="例: Next.jsとSupabaseの連携でエラーが出る"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-            />
-          </div>
+        <div className="space-y-4">
+          <h2 className="text-md font-bold text-gray-700">
+            やり取り一覧 ({answers.length}件)
+          </h2>
 
-          {/* 内容入力 */}
-          <div>
-            <label
-              htmlFor="content"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              質問の詳細内容
-            </label>
+          {answers.length === 0 ? (
+            <div className="bg-white p-6 rounded-xl border border-gray-100 text-center text-gray-400 text-sm">
+              まだ返信はありません。SA（先輩）からの回答をお待ちください。
+            </div>
+          ) : (
+            answers.map((ans) => (
+              <div
+                key={ans.id}
+                className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm space-y-2"
+              >
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span className="font-medium text-indigo-600">
+                    🧑‍🏫 SAからの回答
+                  </span>
+                  <span>
+                    {new Date(ans.created_at).toLocaleString("ja-JP")}
+                  </span>
+                </div>
+                {ans.content && (
+                  <p className="text-gray-800 whitespace-pre-wrap text-sm">
+                    {ans.content}
+                  </p>
+                )}
+                {ans.image_url && (
+                  <div className="mt-2 max-w-sm rounded-lg overflow-hidden border">
+                    {/* eslint-disable-next-html-next/no-img-element */}
+                    <img
+                      src={ans.image_url}
+                      alt="添付画像"
+                      className="w-full h-auto object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* SA（先輩）の場合のみ返信フォームを表示 */}
+        {userRole === "sa" ? (
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white p-4 rounded-xl border border-gray-200 shadow-md space-y-3"
+          >
+            <div className="text-xs font-semibold text-indigo-600">
+              🧑‍🏫 SA（先輩）として回答する
+            </div>
+
+            {filePreview && (
+              <div className="relative w-24 h-24 border rounded-lg overflow-hidden">
+                {/* eslint-disable-next-html-next/no-img-element */}
+                <img
+                  src={filePreview}
+                  alt="プレビュー"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFile(null);
+                    setFilePreview(null);
+                  }}
+                  className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <textarea
-              id="content"
-              rows={6}
-              required
+              rows={3}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="発生しているエラーや試したこと、具体的な状況を書いてください..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition resize-none"
+              placeholder="回答・メッセージを入力..."
+              className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
-          </div>
 
-          {/* ボタンエリア */}
-          <div className="flex items-center justify-end space-x-4 pt-4">
-            <Link
-              href="/questions"
-              className="px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition duration-150"
-            >
-              キャンセル
-            </Link>
-            <button
-              type="submit"
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer"
-            >
-              質問を投稿する
-            </button>
+            <div className="flex items-center justify-between">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              />
+
+              <button
+                type="submit"
+                disabled={isSubmitting || (!content.trim() && !selectedFile)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg disabled:opacity-50 transition"
+              >
+                {isSubmitting ? "送信中..." : "送信する"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="bg-gray-100 p-4 rounded-xl border border-gray-200 text-center text-sm text-gray-500">
+            ※質問への回答は <strong>SA（先輩アシスタント）</strong>{" "}
+            のみ行えます。
           </div>
-        </form>
+        )}
       </div>
     </div>
+  );
+}
+
+// 2. Suspenseで包んでエクスポート
+export default function QuestionDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-gray-500">読み込み中...</div>
+      }
+    >
+      <QuestionDetailContent />
+    </Suspense>
   );
 }
