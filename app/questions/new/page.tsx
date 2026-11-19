@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -9,7 +9,23 @@ export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const router = useRouter();
+
+  // ページ表示時にログイン状態をチェックし、未ログインならリダイレクト
+  useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+      } else {
+        setIsCheckingAuth(false);
+      }
+    };
+    checkUser();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,18 +34,15 @@ export default function NewQuestionPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. 現在ログインしているユーザー情報を取得
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) {
-        alert("質問を投稿するにはログインが必要です。");
-        router.push("/login");
+        router.replace("/login");
         return;
       }
 
-      // 2. Supabase の questions テーブルに保存（user_id も一緒に保存）
       const { error } = await supabase.from("questions").insert([
         {
           title: title,
@@ -40,7 +53,6 @@ export default function NewQuestionPage() {
 
       if (error) throw error;
 
-      // 3. 質問一覧ページへ移動
       router.push("/questions");
       router.refresh();
     } catch (err) {
@@ -51,10 +63,14 @@ export default function NewQuestionPage() {
     }
   };
 
+  // 認証チェック中は何も表示しない（一瞬フォームが見えるのを防ぐ）
+  if (isCheckingAuth) {
+    return <div className="p-8 text-center text-gray-500">認証を確認中...</div>;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
-        {/* ヘッダー */}
         <div className="mb-8">
           <Link
             href="/questions"
@@ -70,9 +86,7 @@ export default function NewQuestionPage() {
           </p>
         </div>
 
-        {/* 質問フォーム */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* タイトル入力 */}
           <div>
             <label
               htmlFor="title"
@@ -91,7 +105,6 @@ export default function NewQuestionPage() {
             />
           </div>
 
-          {/* 内容入力 */}
           <div>
             <label
               htmlFor="content"
@@ -110,7 +123,6 @@ export default function NewQuestionPage() {
             />
           </div>
 
-          {/* ボタンエリア */}
           <div className="flex items-center justify-end space-x-4 pt-4">
             <Link
               href="/questions"

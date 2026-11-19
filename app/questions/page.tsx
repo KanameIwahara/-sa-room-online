@@ -8,6 +8,7 @@ type Question = {
   id: string;
   title: string;
   content: string;
+  is_resolved: boolean;
   created_at: string;
 };
 
@@ -34,9 +35,8 @@ export default function QuestionsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* ヘッダーエリア */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">質問一覧</h1>
@@ -52,7 +52,6 @@ export default function QuestionsPage() {
           </Link>
         </div>
 
-        {/* 質問カード一覧 */}
         {loading ? (
           <div className="text-center py-12 text-gray-500">読み込み中...</div>
         ) : questions.length === 0 ? (
@@ -67,11 +66,23 @@ export default function QuestionsPage() {
                 href={`/questions/${q.id}`}
                 className="block bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition"
               >
-                <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                  <span>
-                    投稿日時: {new Date(q.created_at).toLocaleString("ja-JP")}
+                <div className="flex items-center justify-between mb-2">
+                  {/* ステータスバッジ */}
+                  {q.is_resolved ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                      ✅ 解決済み
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                      💡 回答受付中
+                    </span>
+                  )}
+
+                  <span className="text-xs text-gray-400">
+                    {new Date(q.created_at).toLocaleString("ja-JP")}
                   </span>
                 </div>
+
                 <h2 className="text-lg font-semibold text-gray-900 hover:text-indigo-600 transition">
                   {q.title}
                 </h2>
