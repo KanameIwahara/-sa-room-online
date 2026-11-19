@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -9,7 +9,23 @@ export default function NewQuestionPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const router = useRouter();
+
+  // ページ表示時にログイン状態をチェックし、未ログインならリダイレクト
+  useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+      } else {
+        setIsCheckingAuth(false);
+      }
+    };
+    checkUser();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,31 +34,43 @@ export default function NewQuestionPage() {
     setIsSubmitting(true);
 
     try {
-      // Supabaseのquestionsテーブルへデータを挿入(INSERT)
-      const { error } = await supabase
-        .from("questions")
-        .insert([{ title, content }]);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (error) {
-        console.error("保存失敗:", error);
-        alert("データベースへの保存に失敗しました");
+      if (!user) {
+        router.replace("/login");
         return;
       }
 
-      // 保存が完了したら一覧画面へ移動
+      const { error } = await supabase.from("questions").insert([
+        {
+          title: title,
+          content: content,
+          user_id: user.id,
+        },
+      ]);
+
+      if (error) throw error;
+
       router.push("/questions");
+      router.refresh();
     } catch (err) {
-      console.error("送信エラー:", err);
-      alert("エラーが発生しました");
+      console.error("質問投稿エラー:", err);
+      alert("質問の投稿に失敗しました。");
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // 認証チェック中は何も表示しない（一瞬フォームが見えるのを防ぐ）
+  if (isCheckingAuth) {
+    return <div className="p-8 text-center text-gray-500">認証を確認中...</div>;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
-        {/* ヘッダー */}
         <div className="mb-8">
           <Link
             href="/questions"
@@ -58,9 +86,7 @@ export default function NewQuestionPage() {
           </p>
         </div>
 
-        {/* 質問フォーム */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* タイトル入力 */}
           <div>
             <label
               htmlFor="title"
@@ -79,7 +105,6 @@ export default function NewQuestionPage() {
             />
           </div>
 
-          {/* 内容入力 */}
           <div>
             <label
               htmlFor="content"
@@ -98,7 +123,6 @@ export default function NewQuestionPage() {
             />
           </div>
 
-          {/* ボタンエリア */}
           <div className="flex items-center justify-end space-x-4 pt-4">
             <Link
               href="/questions"
@@ -111,7 +135,7 @@ export default function NewQuestionPage() {
               disabled={isSubmitting}
               className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
             >
-              {isSubmitting ? "保存中..." : "質問を投稿する"}
+              {isSubmitting ? "投稿中..." : "質問を投稿する"}
             </button>
           </div>
         </form>
