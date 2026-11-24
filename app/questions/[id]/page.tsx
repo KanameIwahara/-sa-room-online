@@ -1,8 +1,6 @@
 "use client";
 
-export const instant = false;
-
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, Suspense } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
@@ -13,13 +11,12 @@ type Question = {
   created_at: string;
 };
 
-export default function QuestionDetailPage({
+function QuestionDetailContent({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = use(params);
-  const id = resolvedParams.id;
+  const { id } = use(params);
 
   const [question, setQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,7 +72,6 @@ export default function QuestionDetailPage({
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* 戻るボタン */}
         <Link
           href="/questions"
           className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition"
@@ -83,9 +79,7 @@ export default function QuestionDetailPage({
           ← 質問一覧に戻る
         </Link>
 
-        {/* 質問詳細カード */}
         <article className="bg-white p-8 rounded-xl shadow-md border border-gray-100 space-y-6">
-          {/* メタ情報 */}
           <div className="border-b border-gray-100 pb-4">
             <span className="text-xs text-gray-400">
               投稿日時: {new Date(question.created_at).toLocaleString("ja-JP")}
@@ -95,12 +89,29 @@ export default function QuestionDetailPage({
             </h1>
           </div>
 
-          {/* 質問本文 */}
           <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
             {question.content}
           </div>
         </article>
       </div>
     </div>
+  );
+}
+
+export default function QuestionDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 py-12 text-center text-gray-500">
+          データを読み込み中...
+        </div>
+      }
+    >
+      <QuestionDetailContent params={params} />
+    </Suspense>
   );
 }
