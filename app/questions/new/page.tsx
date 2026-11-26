@@ -18,22 +18,34 @@ export default function NewQuestionPage() {
     setIsSubmitting(true);
 
     try {
-      // Supabaseのquestionsテーブルへデータを挿入(INSERT)
-      const { error } = await supabase
-        .from("questions")
-        .insert([{ title, content }]);
+      // 1. 現在ログインしているユーザー情報を取得
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (error) {
-        console.error("保存失敗:", error);
-        alert("データベースへの保存に失敗しました");
+      if (!user) {
+        alert("質問を投稿するにはログインが必要です。");
+        router.push("/login");
         return;
       }
 
-      // 保存が完了したら一覧画面へ移動
+      // 2. Supabase の questions テーブルに保存（user_id も一緒に保存）
+      const { error } = await supabase.from("questions").insert([
+        {
+          title: title,
+          content: content,
+          user_id: user.id,
+        },
+      ]);
+
+      if (error) throw error;
+
+      // 3. 質問一覧ページへ移動
       router.push("/questions");
+      router.refresh();
     } catch (err) {
-      console.error("送信エラー:", err);
-      alert("エラーが発生しました");
+      console.error("質問投稿エラー:", err);
+      alert("質問の投稿に失敗しました。");
     } finally {
       setIsSubmitting(false);
     }
@@ -111,7 +123,7 @@ export default function NewQuestionPage() {
               disabled={isSubmitting}
               className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
             >
-              {isSubmitting ? "保存中..." : "質問を投稿する"}
+              {isSubmitting ? "投稿中..." : "質問を投稿する"}
             </button>
           </div>
         </form>
