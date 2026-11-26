@@ -64,11 +64,6 @@ export default function NewQuestionPage() {
     }
   };
 
-  // 認証チェック中は何も表示しない（一瞬フォームが見えるのを防ぐ）
-  if (isCheckingAuth) {
-    return <div className="p-8 text-center text-gray-500">認証を確認中...</div>;
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
