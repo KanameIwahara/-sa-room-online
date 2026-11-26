@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -13,7 +13,7 @@ type Question = {
   created_at: string;
 };
 
-export default function QuestionDetailPage() {
+function QuestionDetailContent() {
   const params = useParams();
   const id = params.id as string;
 
@@ -94,7 +94,7 @@ export default function QuestionDetailPage() {
               添付画像
             </h2>
             <div className="rounded-lg overflow-hidden border border-gray-200 max-w-lg">
-              {/* eslint-disable-next-html-next/no-img-element */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={question.image_url}
                 alt="添付画像"
@@ -105,5 +105,19 @@ export default function QuestionDetailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function QuestionDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 py-12 px-4 text-center text-gray-500">
+          読み込み中...
+        </div>
+      }
+    >
+      <QuestionDetailContent />
+    </Suspense>
   );
 }
