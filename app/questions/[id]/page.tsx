@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, Suspense } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
@@ -22,9 +22,9 @@ type Answer = {
   created_at: string;
 };
 
+// 1. 中身の処理を行うコンポーネント
 function QuestionDetailContent() {
   const params = useParams();
-  const router = useRouter();
   const questionId = params.id as string;
 
   const [question, setQuestion] = useState<Question | null>(null);
@@ -33,10 +33,8 @@ function QuestionDetailContent() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null); // ユーザーの役割（'student' | 'sa' | null）
+  const [userId, setUserId] = useState<string | null>(null); // ログイン中のユーザーID
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ログインユーザー情報と役割（role）を取得
@@ -83,58 +81,10 @@ function QuestionDetailContent() {
     if (aData) setAnswers(aData);
   }, [questionId]);
 
+  // ログインユーザー情報と役割（role）を取得
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  // 解決済み / 未解決を切り替える処理
-  const handleToggleResolved = async () => {
-    if (!question) return;
-    setIsUpdatingStatus(true);
-    const nextStatus = !question.is_resolved;
-
-    try {
-      const { error } = await supabase
-        .from("questions")
-        .update({ is_resolved: nextStatus })
-        .eq("id", questionId);
-
-      if (error) throw error;
-
-      setQuestion({ ...question, is_resolved: nextStatus });
-    } catch (err) {
-      console.error("ステータス更新エラー:", err);
-      alert("ステータスの更新に失敗しました。");
-    } finally {
-      setIsUpdatingStatus(false);
-    }
-  };
-
-  // 質問を取り消す（削除する）処理
-  const handleDeleteQuestion = async () => {
-    const isConfirmed = window.confirm(
-      "本当にこの質問を取り消しますか？\n（やり取りもすべて削除されます）",
-    );
-    if (!isConfirmed) return;
-
-    setIsDeleting(true);
-    try {
-      const { error } = await supabase
-        .from("questions")
-        .delete()
-        .eq("id", questionId);
-
-      if (error) throw error;
-
-      alert("質問を取り消しました。");
-      router.push("/questions");
-      router.refresh();
-    } catch (err) {
-      console.error("削除エラー:", err);
-      alert("質問の取り消しに失敗しました。");
-      setIsDeleting(false);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -183,7 +133,7 @@ function QuestionDetailContent() {
           question_id: questionId,
           content: content,
           image_url: imageUrl,
-          user_id: userId,
+          user_id: userId, // 投稿したSAのユーザーIDも保存
         },
       ]);
 
@@ -206,66 +156,20 @@ function QuestionDetailContent() {
   if (!question)
     return <div className="p-8 text-center text-gray-500">読み込み中...</div>;
 
-  const isOwner = userId && question.user_id === userId;
-
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Link
-            href="/questions"
-            className="text-sm text-gray-500 hover:underline"
-          >
-            ← 質問一覧に戻る
-          </Link>
-
-          {/* 投稿者本人のみ：解決済み切り替え＆削除ボタン */}
-          {isOwner && (
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={handleToggleResolved}
-                disabled={isUpdatingStatus}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition disabled:opacity-50 ${
-                  question.is_resolved
-                    ? "text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
-                    : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
-                }`}
-              >
-                {isUpdatingStatus
-                  ? "更新中..."
-                  : question.is_resolved
-                    ? "↩ 受付中に戻す"
-                    : "✅ 解決済みにする"}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDeleteQuestion}
-                disabled={isDeleting}
-                className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition disabled:opacity-50"
-              >
-                {isDeleting ? "削除中..." : "🗑 質問を取り消す"}
-              </button>
-            </div>
-          )}
-        </div>
+        <Link
+          href="/questions"
+          className="text-sm text-gray-500 hover:underline"
+        >
+          ← 質問一覧に戻る
+        </Link>
 
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            {question.is_resolved ? (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
-                ✅ 解決済み
-              </span>
-            ) : (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-                💡 回答受付中
-              </span>
-            )}
-            <p className="text-xs text-gray-400">
-              投稿日時: {new Date(question.created_at).toLocaleString("ja-JP")}
-            </p>
-          </div>
+          <p className="text-xs text-gray-400 mb-2">
+            投稿日時: {new Date(question.created_at).toLocaleString("ja-JP")}
+          </p>
           <h1 className="text-xl font-bold text-gray-900 mb-2">
             {question.title}
           </h1>
@@ -317,6 +221,7 @@ function QuestionDetailContent() {
           )}
         </div>
 
+        {/* SA（先輩）の場合のみ返信フォームを表示 */}
         {userRole === "sa" ? (
           <form
             onSubmit={handleSubmit}
@@ -384,6 +289,7 @@ function QuestionDetailContent() {
   );
 }
 
+// 2. Suspenseで包んでエクスポート
 export default function QuestionDetailPage() {
   return (
     <Suspense
