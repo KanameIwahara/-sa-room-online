@@ -8,16 +8,20 @@ import { supabase } from "@/lib/supabase";
 export default function Header() {
   const router = useRouter();
   const pathname = usePathname();
+  const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [onlineSaCount, setOnlineSaCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
+  // 1. ログインユーザー情報とロール（生徒 / SA）の取得
   useEffect(() => {
     const fetchUserAndRole = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
+        setUserId(user.id);
         setUserEmail(user.email ?? null);
         const { data } = await supabase
           .from("profiles")
@@ -26,6 +30,7 @@ export default function Header() {
           .single();
         setUserRole(data?.role ?? "student");
       } else {
+        setUserId(null);
         setUserEmail(null);
         setUserRole(null);
       }
@@ -34,10 +39,10 @@ export default function Header() {
 
     fetchUserAndRole();
 
-    // ログイン・ログアウト状態の変化をリアルタイムに監視
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (session?.user) {
+          setUserId(session.user.id);
           setUserEmail(session.user.email ?? null);
           const { data } = await supabase
             .from("profiles")
@@ -46,6 +51,7 @@ export default function Header() {
             .single();
           setUserRole(data?.role ?? "student");
         } else {
+          setUserId(null);
           setUserEmail(null);
           setUserRole(null);
         }
@@ -57,8 +63,45 @@ export default function Header() {
     };
   }, [pathname]);
 
+  // 2. SAのオンライン人数をリアルタイム監視＆自分がSAならオンライン登録
+  useEffect(() => {
+    const channel = supabase.channel("online-sas", {
+      config: {
+        presence: {
+          key: userId ?? `guest-${Math.random()}`,
+        },
+      },
+    });
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        let count = 0;
+        Object.values(state).forEach((presences) => {
+          const isSa = (presences as Array<{ role?: string }>).some(
+            (p) => p.role === "sa",
+          );
+          if (isSa) count++;
+        });
+        setOnlineSaCount(count);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED" && userRole === "sa" && userId) {
+          await channel.track({
+            role: "sa",
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, userRole]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setUserId(null);
     setUserEmail(null);
     setUserRole(null);
     router.push("/login");
@@ -68,10 +111,29 @@ export default function Header() {
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* アプリロゴ・トップへのリンク */}
-        <Link href="/questions" className="flex items-center space-x-2">
-          <span className="text-xl font-bold text-indigo-600">QA Station</span>
-        </Link>
+        {/* 左側：アプリロゴとオンラインSA人数表示 */}
+        <div className="flex items-center space-x-4">
+          <Link href="/questions" className="flex items-center space-x-2">
+            <span className="text-xl font-bold text-indigo-600">
+              QA Station
+            </span>
+          </Link>
+
+          {/* オンライン中のSA人数バッジ */}
+          <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-medium text-gray-700">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                onlineSaCount > 0
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-gray-400"
+              }`}
+            />
+            <span>
+              オンライン中のSA:{" "}
+              <strong className="text-gray-900">{onlineSaCount}人</strong>
+            </span>
+          </div>
+        </div>
 
         {/* 右側：ログイン状態とログアウト/ログインボタン */}
         <div className="flex items-center space-x-4">
@@ -79,7 +141,6 @@ export default function Header() {
             <>
               {userEmail ? (
                 <div className="flex items-center space-x-3">
-                  {/* ロールバッジ表示 */}
                   <span
                     className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                       userRole === "sa"
@@ -90,12 +151,10 @@ export default function Header() {
                     {userRole === "sa" ? "🧑‍🏫 SA（先輩）" : "👨‍🎓 生徒"}
                   </span>
 
-                  {/* メールアドレス（PC画面のみ表示） */}
                   <span className="hidden sm:inline text-xs text-gray-500">
                     {userEmail}
                   </span>
 
-                  {/* ログアウトボタン */}
                   <button
                     onClick={handleLogout}
                     className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-red-600 border border-gray-300 hover:border-red-300 rounded-lg transition"
