@@ -8,6 +8,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"student" | "sa">("student"); // 役割の選択状態
   const [isSignUp, setIsSignUp] = useState(false); // 新規登録かログインかの切り替えフラグ
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
@@ -22,10 +23,15 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        // 1. 新規ユーザー登録
+        // 1. 新規ユーザー登録（選択したroleをメタデータとして送信）
         const { error } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            data: {
+              role,
+            },
+          },
         });
 
         if (error) throw error;
@@ -87,6 +93,39 @@ export default function LoginPage() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4 rounded-md shadow-sm">
+            {/* 新規登録時のみ役割（生徒 / SA）を選択 */}
+            {isSignUp && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  アカウントの種類
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRole("student")}
+                    className={`py-2.5 px-4 rounded-lg border text-sm font-medium transition ${
+                      role === "student"
+                        ? "bg-indigo-50 border-indigo-600 text-indigo-700 ring-1 ring-indigo-600"
+                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    生徒
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRole("sa")}
+                    className={`py-2.5 px-4 rounded-lg border text-sm font-medium transition ${
+                      role === "sa"
+                        ? "bg-indigo-50 border-indigo-600 text-indigo-700 ring-1 ring-indigo-600"
+                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    SA（質問対応）
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 メールアドレス
