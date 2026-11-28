@@ -2,79 +2,89 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { EmailOtpType } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 type AuthMode = "login" | "preregister" | "complete";
 
-const REDIRECT_COMPLETE_URL =
+const COMPLETE_PAGE_URL =
   "https://sa-room-online.vercel.app/login?mode=complete";
+
+function getInitialMode(): AuthMode {
+  if (typeof window === "undefined") return "login";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("mode") === "complete" ? "complete" : "login";
+}
+
+function getInitialEmail(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("email") ?? "";
+}
+
+function getInitialMessage(): {
+  text: string;
+  type: "error" | "success";
+} | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mode") === "complete") {
+    return {
+      text: "役割（生徒／SA）・メールアドレス・パスワードを入力して本登録を完了してください。",
+      type: "success",
+    };
+  }
+  return null;
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<AuthMode>("login");
-  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState<AuthMode>(getInitialMode);
+  const [email, setEmail] = useState<string>(getInitialEmail);
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"student" | "sa">("student");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     text: string;
     type: "error" | "success";
-  } | null>(null);
+  } | null>(getInitialMessage);
 
-  // メールリンクから遷移してきた場合、トークン検証を行ってから本登録画面へ切り替える
+  // メールリンク経由のセッションが残っている場合のみサインアウトしてURLを整理する
   useEffect(() => {
-    const initFromEmailLink = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const isCompleteParam = params.get("mode") === "complete";
-      const tokenHash = params.get("token_hash");
-      const otpType = (params.get("type") as EmailOtpType | null) || "email";
-      const code = params.get("code");
-      const hasHashToken =
-        window.location.hash.includes("access_token") ||
-        window.location.hash.includes("refresh_token");
+    const params = new URLSearchParams(window.location.search);
+    const isComplete = params.get("mode") === "complete";
+    const emailFromQuery = params.get("email");
+    const hasHashToken =
+      window.location.hash.includes("access_token") ||
+      window.location.hash.includes("refresh_token") ||
+      params.has("code") ||
+      params.has("token_hash");
 
-      if (!isCompleteParam && !tokenHash && !code && !hasHashToken) {
-        return;
-      }
+    if (!isComplete && !hasHashToken) {
+      return;
+    }
 
+    let cancelled = false;
+
+    const cleanupSession = async () => {
       try {
-        if (tokenHash) {
-          const { data, error } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: otpType,
-          });
-          if (!error && data.user?.email) {
-            setEmail(data.user.email);
-          }
-        } else if (code) {
-          const { data, error } =
-            await supabase.auth.exchangeCodeForSession(code);
-          if (!error && data.user?.email) {
-            setEmail(data.user.email);
-          }
-        } else {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user?.email) {
-            setEmail(user.email);
-          }
-        }
+        await supabase.auth.signOut();
       } catch (err) {
-        console.error("メールリンク検証エラー:", err);
+        console.error("セッション解除エラー:", err);
       }
 
-      // URLのトークンやクエリを整理し、自動ログイン状態のまま /questions へ飛ばないよう本登録モードを表示
-      window.history.replaceState(null, "", "/login?mode=complete");
-      setMode("complete");
-      setMessage({
-        text: "メール確認が完了しました。役割（生徒／SA）・メールアドレス・パスワードを設定して本登録を完了してください。",
-        type: "success",
-      });
+      if (cancelled) return;
+
+      const cleanUrl = emailFromQuery
+        ? `/login?mode=complete&email=${encodeURIComponent(emailFromQuery)}`
+        : "/login?mode=complete";
+      window.history.replaceState(null, "", cleanUrl);
     };
 
-    initFromEmailLink();
+    void cleanupSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,84 +96,52 @@ export default function LoginPage() {
 
     try {
       if (mode === "preregister") {
-        // 仮登録：確認メールを送信（仮登録画面では役割・パスワードを表示しない）
+        // ③ 仮登録：本登録画面へ誘導するメールを送信
         const tempSecret = crypto.randomUUID() + "Aa1!";
+        const redirectWithEmail = `${COMPLETE_PAGE_URL}&email=${encodeURIComponent(
+          normalizedEmail,
+        )}`;
+
         const { error } = await supabase.auth.signUp({
           email: normalizedEmail,
           password: tempSecret,
           options: {
-            emailRedirectTo: REDIRECT_COMPLETE_URL,
+            emailRedirectTo: redirectWithEmail,
           },
         });
 
         if (error) throw error;
 
         setMessage({
-          text: "仮登録メールを送信しました。メール内の「メールから本登録に進む」を押して本登録を完了してください。",
+          text: "確認メールを送信しました。メール内の「メールから本登録に進む」を押して本登録画面へ進んでください。",
           type: "success",
         });
       } else if (mode === "complete") {
-        // 本登録：現在のセッション（メール確認済みユーザー）があればパスワードと役割を直接更新する
-        const {
-          data: { user: currentUser },
-        } = await supabase.auth.getUser();
-
-        if (currentUser) {
-          const updatePayload: {
-            password: string;
-            data: { role: "student" | "sa" };
-            email?: string;
-          } = {
-            password,
-            data: { role },
-          };
-
-          if (
-            normalizedEmail &&
-            normalizedEmail !== currentUser.email?.toLowerCase()
-          ) {
-            updatePayload.email = normalizedEmail;
-          }
-
-          const { error: updateError } =
-            await supabase.auth.updateUser(updatePayload);
-          if (updateError) throw updateError;
-        } else {
-          // セッションがない状態からの本登録の場合は新規サインアップを実行
-          const { error: signUpError } = await supabase.auth.signUp({
-            email: normalizedEmail,
-            password,
-            options: {
-              emailRedirectTo: REDIRECT_COMPLETE_URL,
-              data: { role },
-            },
-          });
-          if (signUpError) throw signUpError;
-        }
-
-        // 本登録完了後は一度サインアウトしてから、入力したパスワードで再ログインして検証
-        await supabase.auth.signOut();
-        const targetEmail = currentUser?.email || normalizedEmail;
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: targetEmail,
+        // ④〜⑤ 本登録：役割・メールアドレス・パスワードを登録し、完了後は①のログイン画面へ移る
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: normalizedEmail,
           password,
+          options: {
+            emailRedirectTo: COMPLETE_PAGE_URL,
+            data: {
+              role,
+            },
+          },
         });
 
-        if (signInError) {
-          setEmail(targetEmail);
-          setPassword("");
-          setMode("login");
-          setMessage({
-            text: "本登録が完了しました。設定したメールアドレスとパスワードでログインしてください。",
-            type: "success",
-          });
-          return;
-        }
+        if (signUpError) throw signUpError;
 
-        router.push("/questions");
-        router.refresh();
+        // 自動ログインさせず、⑤のログイン画面へ切り替え
+        await supabase.auth.signOut();
+        setPassword("");
+        setMode("login");
+        window.history.replaceState(null, "", "/login");
+        setMessage({
+          text: "本登録が完了しました。登録したメールアドレスとパスワードでログインしてください。",
+          type: "success",
+        });
       } else {
-        // 通常ログイン
+        // ①・⑥ ログイン画面でメールアドレスとパスワードを入力してログイン
         const { error } = await supabase.auth.signInWithPassword({
           email: normalizedEmail,
           password,
@@ -181,7 +159,7 @@ export default function LoginPage() {
       const friendlyMessage = rawMessage
         .toLowerCase()
         .includes("invalid login credentials")
-        ? "メールアドレスまたはパスワードが正しくありません。本登録を完了したか、メール確認リンクをクリック済みかご確認ください。"
+        ? "メールアドレスまたはパスワードが正しくありません。"
         : rawMessage;
       setMessage({
         text: friendlyMessage,
@@ -194,17 +172,17 @@ export default function LoginPage() {
 
   const titleText =
     mode === "preregister"
-      ? "仮登録（メール送信）"
+      ? "仮登録"
       : mode === "complete"
-        ? "本登録（役割・パスワード設定）"
+        ? "本登録"
         : "ログイン";
 
   const descriptionText =
     mode === "preregister"
-      ? "メールアドレスを入力してください。本登録用のリンクを送信します。"
+      ? "メールアドレスを入力してください。本登録へ進むためのメールを送信します。"
       : mode === "complete"
-        ? "役割とパスワードを設定して本登録を完了してください。"
-        : "登録済みのメールアドレスとパスワードでログインしてください。";
+        ? "役割・メールアドレス・パスワードを設定して本登録を完了してください。"
+        : "メールアドレスとパスワードを入力してログインしてください。";
 
   const submitButtonText = loading
     ? "処理中..."
@@ -240,7 +218,7 @@ export default function LoginPage() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4 rounded-md shadow-sm">
-            {/* 本登録モード時のみ役割（生徒 / SA）を選択可能にする */}
+            {/* ④ 本登録画面：役割（生徒 / SA）の選択 */}
             {mode === "complete" && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -273,7 +251,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* メールアドレス（仮登録・本登録・ログインすべてで表示） */}
+            {/* メールアドレス（①ログイン・②仮登録・④本登録で表示） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 メールアドレス
@@ -288,7 +266,7 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* パスワード（仮登録では非表示、本登録とログインで表示） */}
+            {/* パスワード（②仮登録では非表示、④本登録と①ログインで表示） */}
             {mode !== "preregister" && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -318,7 +296,7 @@ export default function LoginPage() {
           </div>
         </form>
 
-        {/* ログインと仮登録の切り替え */}
+        {/* ①ログインと②仮登録の切り替え */}
         <div className="text-center pt-4 border-t border-gray-100 space-y-2">
           {mode === "login" ? (
             <button
@@ -339,6 +317,7 @@ export default function LoginPage() {
                 setMode("login");
                 setPassword("");
                 setMessage(null);
+                window.history.replaceState(null, "", "/login");
               }}
               className="text-xs text-indigo-600 hover:underline font-medium"
             >
