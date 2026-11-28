@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 
 export default function NewQuestionPage() {
@@ -43,10 +44,36 @@ export default function NewQuestionPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. 質問データの保存（※画像添付の保存処理はSupabase Storage設定後に接続します）
+      let imageUrl: string | null = null;
+
+      // 1. ファイルが選択されていれば question-images バケットにアップロード
+      if (selectedFile) {
+        const fileExt = selectedFile.name.split(".").pop();
+        const fileName = `questions/${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("question-images")
+          .upload(fileName, selectedFile);
+
+        if (uploadError) {
+          console.error("画像アップロード失敗:", uploadError);
+          alert("ファイルのアップロードに失敗しました");
+          return;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from("question-images")
+          .getPublicUrl(fileName);
+
+        imageUrl = publicUrlData.publicUrl;
+      }
+
+      // 2. 質問データの保存
       const { error } = await supabase
         .from("questions")
-        .insert([{ title, content }]);
+        .insert([{ title, content, image_url: imageUrl }]);
 
       if (error) {
         console.error("保存失敗:", error);
@@ -56,6 +83,7 @@ export default function NewQuestionPage() {
 
       // 保存成功したら質問一覧ページへ移動
       router.push("/questions");
+      router.refresh();
     } catch (err) {
       console.error("送信エラー:", err);
       alert("エラーが発生しました");
@@ -174,10 +202,12 @@ export default function NewQuestionPage() {
                 {/* 画像プレビュー */}
                 {filePreview && (
                   <div className="relative w-full max-h-48 overflow-hidden rounded-lg border border-gray-200">
-                    {/* eslint-disable-next-html-next/no-img-element */}
-                    <img
+                    <Image
                       src={filePreview}
                       alt="添付プレビュー"
+                      width={600}
+                      height={400}
+                      unoptimized
                       className="w-full h-auto object-cover"
                     />
                   </div>
