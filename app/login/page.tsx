@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 type AuthMode = "login" | "preregister" | "complete";
@@ -21,29 +22,56 @@ export default function LoginPage() {
     type: "error" | "success";
   } | null>(null);
 
-  // メールリンクから遷移してきた場合、自動ログインを即座に解除して本登録画面へ切り替える
+  // メールリンクから遷移してきた場合、トークン検証を行ってから本登録画面へ切り替える
   useEffect(() => {
     const initFromEmailLink = async () => {
       const params = new URLSearchParams(window.location.search);
       const isCompleteParam = params.get("mode") === "complete";
-      const hasAuthToken =
+      const tokenHash = params.get("token_hash");
+      const otpType = (params.get("type") as EmailOtpType | null) || "email";
+      const code = params.get("code");
+      const hasHashToken =
         window.location.hash.includes("access_token") ||
-        window.location.hash.includes("refresh_token") ||
-        params.has("code") ||
-        params.has("token_hash");
+        window.location.hash.includes("refresh_token");
 
-      if (isCompleteParam || hasAuthToken) {
-        // メールリンク経由で付与された自動ログインセッションを破棄
-        await supabase.auth.signOut();
-
-        // URLのトークンやクエリを整理して本登録モードへ
-        window.history.replaceState(null, "", "/login?mode=complete");
-        setMode("complete");
-        setMessage({
-          text: "メール確認が完了しました。役割（生徒／SA）・メールアドレス・パスワードを設定して本登録を完了してください。",
-          type: "success",
-        });
+      if (!isCompleteParam && !tokenHash && !code && !hasHashToken) {
+        return;
       }
+
+      try {
+        if (tokenHash) {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType,
+          });
+          if (!error && data.user?.email) {
+            setEmail(data.user.email);
+          }
+        } else if (code) {
+          const { data, error } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (!error && data.user?.email) {
+            setEmail(data.user.email);
+          }
+        } else {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (user?.email) {
+            setEmail(user.email);
+          }
+        }
+      } catch (err) {
+        console.error("メールリンク検証エラー:", err);
+      }
+
+      // URLのトークンやクエリを整理し、自動ログイン状態のまま /questions へ飛ばないよう本登録モードを表示
+      window.history.replaceState(null, "", "/login?mode=complete");
+      setMode("complete");
+      setMessage({
+        text: "メール確認が完了しました。役割（生徒／SA）・メールアドレス・パスワードを設定して本登録を完了してください。",
+        type: "success",
+      });
     };
 
     initFromEmailLink();
@@ -54,13 +82,14 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
       if (mode === "preregister") {
         // 仮登録：確認メールを送信（仮登録画面では役割・パスワードを表示しない）
-        // Supabase signUp の仕様上ダミーパスワードを渡す必要があるため、本登録時に正しいパスワードで再登録する
         const tempSecret = crypto.randomUUID() + "Aa1!";
         const { error } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password: tempSecret,
           options: {
             emailRedirectTo: REDIRECT_COMPLETE_URL,
@@ -74,28 +103,55 @@ export default function LoginPage() {
           type: "success",
         });
       } else if (mode === "complete") {
-        // 本登録：役割（role）・メールアドレス・パスワードを設定して登録を確定
-        const { error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: REDIRECT_COMPLETE_URL,
-            data: {
-              role,
+        // 本登録：現在のセッション（メール確認済みユーザー）があればパスワードと役割を直接更新する
+        const {
+          data: { user: currentUser },
+        } = await supabase.auth.getUser();
+
+        if (currentUser) {
+          const updatePayload: {
+            password: string;
+            data: { role: "student" | "sa" };
+            email?: string;
+          } = {
+            password,
+            data: { role },
+          };
+
+          if (
+            normalizedEmail &&
+            normalizedEmail !== currentUser.email?.toLowerCase()
+          ) {
+            updatePayload.email = normalizedEmail;
+          }
+
+          const { error: updateError } =
+            await supabase.auth.updateUser(updatePayload);
+          if (updateError) throw updateError;
+        } else {
+          // セッションがない状態からの本登録の場合は新規サインアップを実行
+          const { error: signUpError } = await supabase.auth.signUp({
+            email: normalizedEmail,
+            password,
+            options: {
+              emailRedirectTo: REDIRECT_COMPLETE_URL,
+              data: { role },
             },
-          },
-        });
+          });
+          if (signUpError) throw signUpError;
+        }
 
-        if (signUpError) throw signUpError;
-
-        // 自動ログイン状態が残るのを防ぐため一度サインアウトし、設定したパスワードでログインさせる
+        // 本登録完了後は一度サインアウトしてから、入力したパスワードで再ログインして検証
         await supabase.auth.signOut();
+        const targetEmail = currentUser?.email || normalizedEmail;
         const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
+          email: targetEmail,
           password,
         });
 
         if (signInError) {
+          setEmail(targetEmail);
+          setPassword("");
           setMode("login");
           setMessage({
             text: "本登録が完了しました。設定したメールアドレスとパスワードでログインしてください。",
@@ -109,7 +165,7 @@ export default function LoginPage() {
       } else {
         // 通常ログイン
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: normalizedEmail,
           password,
         });
 
@@ -120,10 +176,15 @@ export default function LoginPage() {
       }
     } catch (err: unknown) {
       console.error("認証エラー:", err);
-      const errorMessage =
+      const rawMessage =
         err instanceof Error ? err.message : "処理に失敗しました";
+      const friendlyMessage = rawMessage
+        .toLowerCase()
+        .includes("invalid login credentials")
+        ? "メールアドレスまたはパスワードが正しくありません。本登録を完了したか、メール確認リンクをクリック済みかご確認ください。"
+        : rawMessage;
       setMessage({
-        text: errorMessage,
+        text: friendlyMessage,
         type: "error",
       });
     } finally {
