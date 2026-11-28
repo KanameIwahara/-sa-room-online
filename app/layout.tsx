@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 import Header from "@/components/Header";
+import AuthGuard from "@/components/AuthGuard";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,11 +28,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-gray-50 text-gray-900">
         <Suspense
-          fallback={<div className="h-16 bg-white border-b border-gray-200" />}
+          fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500">
+              読み込み中...
+            </div>
+          }
         >
-          <Header />
+          <AuthGuard>
+            <Header />
+            <main className="flex-1">{children}</main>
+          </AuthGuard>
         </Suspense>
-        <main className="flex-1">{children}</main>
       </body>
     </html>
   );
