@@ -4,36 +4,49 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+type AuthMode = "login" | "preregister" | "complete";
+
+const REDIRECT_COMPLETE_URL =
+  "https://sa-room-online.vercel.app/login?mode=complete";
+
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"student" | "sa">("student"); // 役割の選択状態
-  const [isSignUp, setIsSignUp] = useState(false); // 新規登録かログインかの切り替えフラグ
+  const [role, setRole] = useState<"student" | "sa">("student");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     text: string;
     type: "error" | "success";
   } | null>(null);
 
-  // 確認メールから遷移してきた場合、自動ログインを解除してログインを促す
+  // メールリンクから遷移してきた場合、自動ログインを即座に解除して本登録画面へ切り替える
   useEffect(() => {
-    const handleEmailVerification = async () => {
-      if (
+    const initFromEmailLink = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const isCompleteParam = params.get("mode") === "complete";
+      const hasAuthToken =
         window.location.hash.includes("access_token") ||
-        window.location.search.includes("code=")
-      ) {
+        window.location.hash.includes("refresh_token") ||
+        params.has("code") ||
+        params.has("token_hash");
+
+      if (isCompleteParam || hasAuthToken) {
+        // メールリンク経由で付与された自動ログインセッションを破棄
         await supabase.auth.signOut();
-        window.history.replaceState(null, "", "/login");
-        setIsSignUp(false);
+
+        // URLのトークンやクエリを整理して本登録モードへ
+        window.history.replaceState(null, "", "/login?mode=complete");
+        setMode("complete");
         setMessage({
-          text: "メールアドレスの確認が完了しました。パスワードを入力してログインしてください。",
+          text: "メール確認が完了しました。役割（生徒／SA）・メールアドレス・パスワードを設定して本登録を完了してください。",
           type: "success",
         });
       }
     };
 
-    handleEmailVerification();
+    initFromEmailLink();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,26 +55,59 @@ export default function LoginPage() {
     setMessage(null);
 
     try {
-      if (isSignUp) {
-        // 1. 新規ユーザー登録（選択したroleをメタデータとして送信）
+      if (mode === "preregister") {
+        // 仮登録：確認メールを送信（仮登録画面では役割・パスワードを表示しない）
+        // Supabase signUp の仕様上ダミーパスワードを渡す必要があるため、本登録時に正しいパスワードで再登録する
+        const tempSecret = crypto.randomUUID() + "Aa1!";
         const { error } = await supabase.auth.signUp({
+          email,
+          password: tempSecret,
+          options: {
+            emailRedirectTo: REDIRECT_COMPLETE_URL,
+          },
+        });
+
+        if (error) throw error;
+
+        setMessage({
+          text: "仮登録メールを送信しました。メール内の「メールから本登録に進む」を押して本登録を完了してください。",
+          type: "success",
+        });
+      } else if (mode === "complete") {
+        // 本登録：役割（role）・メールアドレス・パスワードを設定して登録を確定
+        const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: "https://sa-room-online.vercel.app/login",
+            emailRedirectTo: REDIRECT_COMPLETE_URL,
             data: {
               role,
             },
           },
         });
 
-        if (error) throw error;
-        setMessage({
-          text: "登録確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。",
-          type: "success",
+        if (signUpError) throw signUpError;
+
+        // 自動ログイン状態が残るのを防ぐため一度サインアウトし、設定したパスワードでログインさせる
+        await supabase.auth.signOut();
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
+
+        if (signInError) {
+          setMode("login");
+          setMessage({
+            text: "本登録が完了しました。設定したメールアドレスとパスワードでログインしてください。",
+            type: "success",
+          });
+          return;
+        }
+
+        router.push("/questions");
+        router.refresh();
       } else {
-        // 2. ログイン処理
+        // 通常ログイン
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -69,7 +115,6 @@ export default function LoginPage() {
 
         if (error) throw error;
 
-        // ログイン成功したら質問一覧へ遷移
         router.push("/questions");
         router.refresh();
       }
@@ -86,17 +131,37 @@ export default function LoginPage() {
     }
   };
 
+  const titleText =
+    mode === "preregister"
+      ? "仮登録（メール送信）"
+      : mode === "complete"
+        ? "本登録（役割・パスワード設定）"
+        : "ログイン";
+
+  const descriptionText =
+    mode === "preregister"
+      ? "メールアドレスを入力してください。本登録用のリンクを送信します。"
+      : mode === "complete"
+        ? "役割とパスワードを設定して本登録を完了してください。"
+        : "登録済みのメールアドレスとパスワードでログインしてください。";
+
+  const submitButtonText = loading
+    ? "処理中..."
+    : mode === "preregister"
+      ? "確認メールを送信する"
+      : mode === "complete"
+        ? "本登録を完了する"
+        : "ログインする";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-md border border-gray-100">
         <div>
           <h2 className="mt-2 text-center text-2xl font-extrabold text-gray-900">
-            {isSignUp ? "アカウントを新規作成" : "ログイン"}
+            {titleText}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {isSignUp
-              ? "必要な情報を入力してアカウントを作成してください"
-              : "登録済みのメールアドレスとパスワードでログインしてください"}
+            {descriptionText}
           </p>
         </div>
 
@@ -114,11 +179,11 @@ export default function LoginPage() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4 rounded-md shadow-sm">
-            {/* 新規登録時のみ役割（生徒 / SA）を選択 */}
-            {isSignUp && (
+            {/* 本登録モード時のみ役割（生徒 / SA）を選択可能にする */}
+            {mode === "complete" && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  アカウントの種類
+                  アカウントの種類（役割）
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -147,6 +212,7 @@ export default function LoginPage() {
               </div>
             )}
 
+            {/* メールアドレス（仮登録・本登録・ログインすべてで表示） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 メールアドレス
@@ -160,20 +226,24 @@ export default function LoginPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                パスワード
-              </label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="6文字以上"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+
+            {/* パスワード（仮登録では非表示、本登録とログインで表示） */}
+            {mode !== "preregister" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  パスワード
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="6文字以上"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            )}
           </div>
 
           <div>
@@ -182,29 +252,38 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm transition duration-150 disabled:opacity-50"
             >
-              {loading
-                ? "処理中..."
-                : isSignUp
-                  ? "アカウントを作成する"
-                  : "ログインする"}
+              {submitButtonText}
             </button>
           </div>
         </form>
 
-        {/* ログインと新規登録のモード切り替えボタン */}
-        <div className="text-center pt-4 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setMessage(null);
-            }}
-            className="text-xs text-indigo-600 hover:underline font-medium"
-          >
-            {isSignUp
-              ? "すでにアカウントをお持ちですか？ ログインへ"
-              : "アカウントをお持ちでないですか？ 新規登録へ"}
-          </button>
+        {/* ログインと仮登録の切り替え */}
+        <div className="text-center pt-4 border-t border-gray-100 space-y-2">
+          {mode === "login" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMode("preregister");
+                setPassword("");
+                setMessage(null);
+              }}
+              className="text-xs text-indigo-600 hover:underline font-medium"
+            >
+              アカウントをお持ちでないですか？ 仮登録へ
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setMode("login");
+                setPassword("");
+                setMessage(null);
+              }}
+              className="text-xs text-indigo-600 hover:underline font-medium"
+            >
+              すでにアカウントをお持ちですか？ ログインへ
+            </button>
+          )}
         </div>
       </div>
     </div>
