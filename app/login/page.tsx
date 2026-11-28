@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -16,6 +16,26 @@ export default function LoginPage() {
     type: "error" | "success";
   } | null>(null);
 
+  // 確認メールから遷移してきた場合、自動ログインを解除してログインを促す
+  useEffect(() => {
+    const handleEmailVerification = async () => {
+      if (
+        window.location.hash.includes("access_token") ||
+        window.location.search.includes("code=")
+      ) {
+        await supabase.auth.signOut();
+        window.history.replaceState(null, "", "/login");
+        setIsSignUp(false);
+        setMessage({
+          text: "メールアドレスの確認が完了しました。パスワードを入力してログインしてください。",
+          type: "success",
+        });
+      }
+    };
+
+    handleEmailVerification();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -28,6 +48,7 @@ export default function LoginPage() {
           email,
           password,
           options: {
+            emailRedirectTo: "https://sa-room-online.vercel.app/login",
             data: {
               role,
             },
