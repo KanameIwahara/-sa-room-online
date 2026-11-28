@@ -8,8 +8,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"student" | "sa">("student");
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false); // 新規登録かログインかの切り替えフラグ
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     text: string;
@@ -23,23 +22,19 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
+        // 1. 新規ユーザー登録
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            data: {
-              role: role,
-            },
-          },
         });
 
         if (error) throw error;
         setMessage({
-          text: "アカウントを作成しました！ログインしてください。",
+          text: "登録確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。",
           type: "success",
         });
-        setIsSignUp(false);
       } else {
+        // 2. ログイン処理
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -47,13 +42,16 @@ export default function LoginPage() {
 
         if (error) throw error;
 
+        // ログイン成功したら質問一覧へ遷移
         router.push("/questions");
         router.refresh();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("認証エラー:", err);
+      const errorMessage =
+        err instanceof Error ? err.message : "処理に失敗しました";
       setMessage({
-        text: err.message || "処理に失敗しました",
+        text: errorMessage,
         type: "error",
       });
     } finally {
@@ -70,7 +68,7 @@ export default function LoginPage() {
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {isSignUp
-              ? "区分を選択し、情報を入力してアカウントを作成してください"
+              ? "必要な情報を入力してアカウントを作成してください"
               : "登録済みのメールアドレスとパスワードでログインしてください"}
           </p>
         </div>
@@ -89,38 +87,6 @@ export default function LoginPage() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4 rounded-md shadow-sm">
-            {isSignUp && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  アカウント区分
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setRole("student")}
-                    className={`py-2 px-4 border rounded-lg text-sm font-medium transition ${
-                      role === "student"
-                        ? "bg-indigo-50 border-indigo-600 text-indigo-600"
-                        : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    👨‍🎓 生徒
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("sa")}
-                    className={`py-2 px-4 border rounded-lg text-sm font-medium transition ${
-                      role === "sa"
-                        ? "bg-indigo-50 border-indigo-600 text-indigo-600"
-                        : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    🧑‍🏫 SA（先輩）
-                  </button>
-                </div>
-              </div>
-            )}
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 メールアドレス
@@ -130,7 +96,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@gmail.com"
+                placeholder="example@mail.com"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -159,12 +125,13 @@ export default function LoginPage() {
               {loading
                 ? "処理中..."
                 : isSignUp
-                  ? `${role === "sa" ? "SA（先輩）" : "生徒"} として登録`
+                  ? "アカウントを作成する"
                   : "ログインする"}
             </button>
           </div>
         </form>
 
+        {/* ログインと新規登録のモード切り替えボタン */}
         <div className="text-center pt-4 border-t border-gray-100">
           <button
             type="button"
